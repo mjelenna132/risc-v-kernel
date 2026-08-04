@@ -1,0 +1,11 @@
+# rezultati prevodjenja
+build/
+kernel
+kernel.asm
+
+# generise ga Makefile iz .gdbinit.tmpl-riscv
+.gdbinit
+
+# razvojna okruzenja
+.idea/
+.vscode/
