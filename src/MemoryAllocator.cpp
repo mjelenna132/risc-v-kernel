@@ -1,122 +1,138 @@
+//
+// Created by jelena on 8/12/26.
+//
+
 #include "../h/MemoryAllocator.hpp"
+MemoryAllocator::BlockHeader* MemoryAllocator::freeHead = nullptr;
+bool MemoryAllocator::initialized = false;
+void* MemoryAllocator::mem_alloc(size_t blockCount) {
+    // Nije moguće alocirati nula blokova
+    if (blockCount == 0) {
+        return nullptr;
+    }
 
-MemoryAllocator::FreeBlock* MemoryAllocator::head = nullptr;
-uint64 MemoryAllocator::heapStart = 0;
-uint64 MemoryAllocator::heapEnd = 0;
+    // Heap se priprema samo prilikom prve alokacije
+    if (!initialized) {
+        // Na početku je ceo heap jedan veliki slobodan segment
+        freeHead = (BlockHeader*) HEAP_START_ADDR;
 
-void MemoryAllocator::init()
-{
-    heapStart = ((uint64) HEAP_START_ADDR + MEM_BLOCK_SIZE - 1) / MEM_BLOCK_SIZE * MEM_BLOCK_SIZE;
-    heapEnd   =  (uint64) HEAP_END_ADDR / MEM_BLOCK_SIZE * MEM_BLOCK_SIZE;
+        // Veličina celog heap-a u bajtovima
+        freeHead->size =
+            (const char*) HEAP_END_ADDR -
+            (const char*) HEAP_START_ADDR;
 
-    if (heapEnd <= heapStart) { head = nullptr; return; }
+        // Na početku ne postoji drugi slobodan segment
+        freeHead->next = nullptr;
 
-    head = (FreeBlock*) heapStart;
-    head->size = heapEnd - heapStart;
-    head->next = nullptr;
-    head->magic = 0;
-}
+        initialized = true;
+    }
+    // Ukupan broj blokova u heap-u.
+    size_t heapBlockCount =
+        ((const char*)HEAP_END_ADDR -
+         (const char*)HEAP_START_ADDR) / MEM_BLOCK_SIZE;
 
-void* MemoryAllocator::mem_alloc(size_t size)
-{
-    if (size == 0 || !head) { return nullptr; }
+    // Mora ostati i jedan blok za zaglavlje.
+    if (blockCount >= heapBlockCount) {
+        return nullptr;
+    }
 
-    size_t need = (size + MEM_BLOCK_SIZE - 1) / MEM_BLOCK_SIZE * MEM_BLOCK_SIZE;
-    need += MEM_BLOCK_SIZE;
+    // Potreban prostor za korisnika i jedan blok zaglavlje
+    size_t requiredSize = (blockCount + 1) * MEM_BLOCK_SIZE;
 
-    FreeBlock* prev = nullptr;
-    FreeBlock* curr = head;
+    BlockHeader* current = freeHead;
+    BlockHeader* previous = nullptr;
 
-    while (curr) {
-        if (curr->size >= need) {
-            if (curr->size - need >= 2 * MEM_BLOCK_SIZE) {
-                FreeBlock* leftover = (FreeBlock*) ((uint64) curr + need);
-                leftover->size = curr->size - need;
-                leftover->next = curr->next;
-                leftover->magic = 0;
-                curr->size = need;
-                if (prev) { prev->next = leftover; }
-                else      { head = leftover; }
-            } else {
-                if (prev) { prev->next = curr->next; }
-                else      { head = curr->next; }
-            }
+    // Tražimo prvi slobodan segment koji je dovoljno veliki
+    while (current != nullptr && current->size < requiredSize) {
+        previous = current;
+        current = current->next;
+    }
 
-            curr->magic = ALLOCATED_MAGIC;
-            return (void*) ((uint64) curr + MEM_BLOCK_SIZE);
+    // Nijedan slobodan segment nije dovoljno veliki
+    if (current == nullptr) {
+        return nullptr;
+    }
+    // Koliko bajtova ostaje posle alokacije.
+    size_t remainingSize = current->size - requiredSize;
+
+    if (remainingSize >= MEM_BLOCK_SIZE) {
+        // Početak preostalog slobodnog dela.
+        BlockHeader* remaining =
+            (BlockHeader*)((char*)current + requiredSize);
+
+        remaining->size = remainingSize;
+        remaining->next = current->next;
+
+        // Ubacujemo preostali deo u slobodnu listu.
+        if (previous == nullptr) {
+            freeHead = remaining;
+        } else {
+            previous->next = remaining;
         }
-        prev = curr;
-        curr = curr->next;
+
+        current->size = requiredSize;
+    } else {
+        // Uzimamo ceo segment i izbacujemo ga iz slobodne liste.
+        if (previous == nullptr) {
+            freeHead = current->next;
+        } else {
+            previous->next = current->next;
+        }
     }
-    return nullptr;
+
+    // Segment više nije slobodan.
+    current->next = nullptr;
+
+    // Preskačemo blok sa zaglavljem i vraćamo korisnički prostor.
+    return (void*)((char*)current + MEM_BLOCK_SIZE);
 }
 
-// Povratne vrednosti: 0 uspeh, -1 nema pokazivaca, -2 adresa ne moze da bude
-// pocetak bloka, -3 blok nije zauzet. Sve provere se rade pre bilo kakve izmene,
-// da nevalidan poziv ne ostavi slobodnu listu u polovicnom stanju.
-int MemoryAllocator::mem_free(void* addr)
-{
-    if (!addr) { return -1; }
-
-    // Blokovi pocinju na visekratniku MEM_BLOCK_SIZE i zaglavlje je iste
-    // velicine, pa je i vracena adresa uvek tako poravnata. Neporavnat
-    // pokazivac zato sigurno pokazuje u sredinu nekog bloka.
-    if ((uint64) addr % MEM_BLOCK_SIZE != 0) { return -2; }
-
-    FreeBlock* blk = (FreeBlock*) ((uint64) addr - MEM_BLOCK_SIZE);
-
-    if ((uint64) blk < heapStart || (uint64) blk >= heapEnd) { return -2; }
-
-    // Poravnat pokazivac jos uvek moze da pokazuje u sredinu zauzetog bloka ili
-    // na vec oslobodjen blok; oba slucaja hvata trag u zaglavlju.
-    if (blk->magic != ALLOCATED_MAGIC) { return -3; }
-
-    if (blk->size == 0 || (uint64) blk + blk->size > heapEnd) { return -2; }
-
-    FreeBlock* prev = nullptr;
-    FreeBlock* curr = head;
-    while (curr != nullptr && curr < blk) {
-        prev = curr;
-        curr = curr->next;
+int MemoryAllocator::mem_free(void* ptr) {
+    if (ptr == nullptr) {
+        return -1;
     }
 
-    // Zastita za slucaj da je trag u zaglavlju slucajno pogodjen zatecenim
-    // podacima: blok koji upada u sredinu slobodnog regiona je vec oslobodjen.
-    if (prev != nullptr && (uint64) prev + prev->size > (uint64) blk) { return -3; }
+    // Zaglavlje se nalazi jedan blok pre korisničkog prostora.
+    BlockHeader* block =
+        (BlockHeader*)((char*)ptr - MEM_BLOCK_SIZE);
 
-    blk->magic = 0;
-    blk->next = curr;
-    if (prev) { prev->next = blk; }
-    else      { head = blk; }
+    BlockHeader* current = freeHead;
+    BlockHeader* previous = nullptr;
 
-    if (curr) { tryToJoin(blk, curr); }
-    if (prev) { tryToJoin(prev, blk); }
+    // Tražimo mesto po adresi na koje vraćamo segment.
+    while (current != nullptr &&
+           (uint64)current < (uint64)block) {
+        previous = current;
+        current = current->next;
+           }
+
+    // Segment je već slobodan.
+    if (current == block) {
+        return -2;
+    }
+
+    // Vraćamo segment u slobodnu listu.
+    block->next = current;
+
+    if (previous == nullptr) {
+        freeHead = block;
+    } else {
+        previous->next = block;
+    }
+
+    // Spajamo segment sa sledećim ako su susedni.
+    if (current != nullptr &&
+        (char*)block + block->size == (char*)current) {
+        block->size += current->size;
+        block->next = current->next;
+        }
+
+    // Spajamo segment sa prethodnim ako su susedni.
+    if (previous != nullptr &&
+        (char*)previous + previous->size == (char*)block) {
+        previous->size += block->size;
+        previous->next = block->next;
+        }
 
     return 0;
-}
-
-size_t MemoryAllocator::getFreeSpace()
-{
-    size_t total = 0;
-    for (FreeBlock* curr = head; curr != nullptr; curr = curr->next) {
-        total += curr->size;
-    }
-    return total;
-}
-
-size_t MemoryAllocator::getLargestFreeBlock()
-{
-    size_t largest = 0;
-    for (FreeBlock* curr = head; curr != nullptr; curr = curr->next) {
-        if (curr->size > largest) { largest = curr->size; }
-    }
-    return largest;
-}
-
-void MemoryAllocator::tryToJoin(FreeBlock* prev, FreeBlock* curr)
-{
-    if ((uint64) prev + prev->size == (uint64) curr) {
-        prev->size += curr->size;
-        prev->next = curr->next;
-    }
 }

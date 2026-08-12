@@ -7,11 +7,9 @@ DEBUG_FLAG = -D DEBUG_PRINT=0
 KERNEL_IMG = kernel
 KERNEL_ASM = kernel.asm
 
-# Uvezuje se samo modul za pristup hardveru. Gotovi moduli mem.lib (alokator) i
-# console.lib (funkcije getc i putc) nisu potrebni, jer su i zadatak 1 i zadatak
-# 4 uradjeni u okviru ovog projekta.
 LIBS = \
-  ${DIR_LIBS}/hw.lib
+  ${DIR_LIBS}/hw.lib \
+  ${DIR_LIBS}/console.lib
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
@@ -139,7 +137,4 @@ qemu-gdb: ${KERNEL_IMG} .gdbinit
 # http://www.gnu.org/software/make/manual/html_node/Chained-Rules.html
 .PRECIOUS: %.o
 
-# Datoteke sa zavisnostima nalaze se u poddirektorijumima (build/src, build/test),
-# pa ih treba traziti rekurzivno: u suprotnom izmena zaglavlja ne bi izazvala
-# ponovno prevodjenje datoteka koje ga ukljucuju.
--include $(shell find ${DIR_BUILD} -name "*.d" 2>/dev/null)
+-include $(wildcard ${DIR_BUILD}/*.d)
