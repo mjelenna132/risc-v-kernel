@@ -1,75 +1,46 @@
-//
-// Created by jelena on 8/12/26.
-//
 #include "../h/Riscv.hpp"
+#include "../h/TCB.hpp"
 #include "../h/syscall_c.hpp"
-#include "../lib/console.h"
+#include "../lib/hw.h"
 
-static void printText(const char* text) {
-    while (*text != '\0') {
-        __putc(*text);
-        text++;
-    }
+extern void userMain();
+
+static volatile bool userMainFinished = false;
+
+// Ova funkcija pokreće javne testove u korisničkoj niti
+static void userMainWrapper(void*)
+{
+    userMain();
+    userMainFinished = true;
 }
 
-int main() {
+int main()
+{
+    // Postavljamo prekidnu rutinu
     Riscv::writeStvec((uint64)&supervisorTrap);
 
-    bool success = true;
+    // Glavna nit već postoji, pa samo pravimo njen TCB
+    _thread::initialize();
 
-    void* first = mem_alloc(100);
-    void* second = mem_alloc(200);
+    thread_t userThread = nullptr;
 
-    if (first == nullptr || second == nullptr || first == second) {
-        success = false;
-    }
-
-    // Provera korisničkog prostora.
-    if (first != nullptr) {
-        char* data = (char*)first;
-
-        for (int i = 0; i < 100; i++) {
-            data[i] = 'A';
-        }
-    }
-
-    // Provera oslobađanja i dvostrukog oslobađanja.
-    if (first != nullptr) {
-        if (mem_free(first) != 0) {
-            success = false;
+    // Pokrećemo javne testove kao korisničku nit
+    if (thread_create(
+            &userThread,
+            userMainWrapper,
+            nullptr
+        ) < 0) {
+        *(volatile uint32*)0x100000 = 0x5555;
+        return -1;
         }
 
-        if (mem_free(first) >= 0) {
-            success = false;
-        }
+    // Main čeka da se userMain završi
+    while (!userMainFinished) {
+        thread_dispatch();
     }
 
-    if (second != nullptr && mem_free(second) != 0) {
-        success = false;
-    }
-
-    // Posle spajanja treba ponovo da se koristi početak heap-a.
-    void* merged = mem_alloc(300);
-
-    if (merged == nullptr || merged != first) {
-        success = false;
-    }
-
-    if (merged != nullptr && mem_free(merged) != 0) {
-        success = false;
-    }
-
-    // Prevelik zahtev mora biti odbijen.
-    if (mem_alloc((size_t)-1) != nullptr) {
-        success = false;
-    }
-
-    if (success) {
-        printText("Svi testovi alokatora su prosli\n");
-    } else {
-        printText("Test alokatora nije prosao\n");
-    }
-
+    // Gasimo emulator
     *(volatile uint32*)0x100000 = 0x5555;
+
     return 0;
 }

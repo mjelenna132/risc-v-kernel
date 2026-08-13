@@ -13,7 +13,14 @@
 extern "C" void supervisorTrap();
 
 // C++ deo koji obrađuje sistemski poziv.
-extern "C" uint64 handleSupervisorTrap(uint64 code, uint64 argument);
+extern "C" uint64 handleSupervisorTrap(
+    uint64 code,
+    uint64 argument1,
+    uint64 argument2,
+    uint64 argument3,
+    uint64 argument4
+);
+
 
 class Riscv {
 public:
@@ -40,7 +47,20 @@ public:
     static void writeStvec(uint64 value) {
         asm volatile("csrw stvec, %0" : : "r"(value));
     }
+
+    static uint64 readSstatus() {
+        uint64 value;
+        asm volatile("csrr %0, sstatus" : "=r"(value));
+        return value;
+    }
+
+    static void writeSstatus(uint64 value) {
+        asm volatile("csrw sstatus, %0" : : "r"(value));
+    }
+    // Prelazak iz sistemskog u korisnički režim
+    static void popSppSpie() __attribute__((naked));
 };
+
 
 #endif // OS_PROJECT_RISCV_HPP
 

@@ -46,3 +46,89 @@ int mem_free(void* ptr) {
 
     return (int)a0;
 }
+int thread_create(thread_t* handle,
+                  void (*start_routine)(void*),
+                  void* arg) {
+    if (handle == nullptr || start_routine == nullptr) {
+        return -1;
+    }
+
+    // Odvajamo stek za novu nit.
+    void* stack = mem_alloc(DEFAULT_STACK_SIZE);
+
+    if (stack == nullptr) {
+        return -2;
+    }
+
+    // Stek raste od viših ka nižim adresama.
+    uint64* stackTop =
+        (uint64*)stack + DEFAULT_STACK_SIZE / sizeof(uint64);
+
+    register uint64 a0 asm("a0") = 0x11;
+    register uint64 a1 asm("a1") = (uint64)handle;
+    register uint64 a2 asm("a2") = (uint64)start_routine;
+    register uint64 a3 asm("a3") = (uint64)arg;
+    register uint64 a4 asm("a4") = (uint64)stackTop;
+
+    asm volatile("ecall"
+                 : "+r"(a0)
+                 : "r"(a1), "r"(a2), "r"(a3), "r"(a4)
+                 : "memory");
+
+    // Ako kreiranje nije uspelo, vraćamo stek.
+    if ((int)a0 < 0) {
+        mem_free(stack);
+    }
+
+    return (int)a0;
+}
+
+int thread_exit() {
+    register uint64 a0 asm("a0") = 0x12;
+
+    asm volatile("ecall"
+                 : "+r"(a0)
+                 :
+                 : "memory");
+
+    return (int)a0;
+}
+
+void thread_dispatch() {
+    register uint64 a0 asm("a0") = 0x13;
+
+    asm volatile("ecall"
+                 : "+r"(a0)
+                 :
+                 : "memory");
+}
+char getc()
+{
+    register uint64 code asm("a0") = 0x41;
+
+    // Tražimo jedan znak od jezgra
+    __asm__ volatile(
+        "ecall"
+        : "+r"(code)
+        :
+        : "memory"
+    );
+
+    return (char)code;
+}
+
+void putc(char character)
+{
+    register uint64 code asm("a0") = 0x42;
+    register uint64 argument asm("a1") =
+        (uint64)(unsigned char)character;
+
+    // Šaljemo znak jezgru
+    __asm__ volatile(
+        "ecall"
+        : "+r"(code)
+        : "r"(argument)
+        : "memory"
+    );
+}
+
