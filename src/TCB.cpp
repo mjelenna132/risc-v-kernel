@@ -28,6 +28,8 @@ _thread::_thread(Body body, void* arg, uint64* stackTop)
           body != nullptr ? (uint64)stackTop : 0
       },
       finished(false),
+      blocked(false),
+      waitResult(0),
       next(nullptr) {
 }
 
@@ -73,7 +75,7 @@ void _thread::dispatch() {
     _thread* old = running;
 
     // Nezavršena nit se vraća na kraj reda.
-    if (old != nullptr && !old->finished) {
+    if (old != nullptr && !old->finished && !old->blocked) {
         Scheduler::put(old);
     }
 

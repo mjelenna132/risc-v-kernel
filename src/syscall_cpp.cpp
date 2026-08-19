@@ -53,3 +53,37 @@ int Thread::sleep(time_t) {
     // Implementiraćemo u delu sa tajmerom.
     return -1;
 }
+
+Semaphore::Semaphore(unsigned init)
+    : myHandle(nullptr)
+{
+    sem_open(&myHandle, init);
+}
+
+Semaphore::~Semaphore()
+{
+    if (myHandle != nullptr) {
+        sem_close(myHandle);
+        myHandle = nullptr;
+    }
+}
+
+int Semaphore::wait()
+{
+    return sem_wait(myHandle);
+}
+
+int Semaphore::signal()
+{
+    return sem_signal(myHandle);
+}
+
+char Console::getc()
+{
+    return ::getc();
+}
+
+void Console::putc(char character)
+{
+    ::putc(character);
+}

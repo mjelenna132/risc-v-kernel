@@ -96,7 +96,7 @@ int thread_exit() {
 
 void thread_dispatch() {
     register uint64 a0 asm("a0") = 0x13;
-
+    //Napravi 64-bitnu promenljivu code, stavi je u registar a0 i upiši u nju vrednost 0x13
     asm volatile("ecall"
                  : "+r"(a0)
                  :
@@ -105,6 +105,7 @@ void thread_dispatch() {
 char getc()
 {
     register uint64 code asm("a0") = 0x41;
+    //code c++ promenljiva i a0 je isto
 
     // Tražimo jedan znak od jezgra
     __asm__ volatile(
@@ -130,5 +131,83 @@ void putc(char character)
         : "r"(argument)
         : "memory"
     );
+}
+
+int sem_open(sem_t* handle, unsigned init)
+{
+    if (handle == nullptr) {
+        return -1;
+    }
+
+    // a0 = kod poziva, a1 = adresa ručke, a2 = početna vrednost.
+    register uint64 a0 asm("a0") = 0x21;
+    register uint64 a1 asm("a1") = (uint64)handle;
+    register uint64 a2 asm("a2") = (uint64)init;
+
+    asm volatile(
+        "ecall"
+        : "+r"(a0)
+        : "r"(a1), "r"(a2)
+        : "memory"
+    );
+
+    return (int)a0;
+}
+
+int sem_close(sem_t handle)
+{
+    if (handle == nullptr) {
+        return -1;
+    }
+
+    register uint64 a0 asm("a0") = 0x22;
+    register uint64 a1 asm("a1") = (uint64)handle;
+
+    asm volatile(
+        "ecall"
+        : "+r"(a0)
+        : "r"(a1)
+        : "memory"
+    );
+
+    return (int)a0;
+}
+
+int sem_wait(sem_t id)
+{
+    if (id == nullptr) {
+        return -1;
+    }
+
+    register uint64 a0 asm("a0") = 0x23;
+    register uint64 a1 asm("a1") = (uint64)id;
+
+    asm volatile(
+        "ecall"
+        : "+r"(a0)
+        : "r"(a1)
+        : "memory"
+    );
+
+    return (int)a0;
+}
+
+int sem_signal(sem_t id)
+{
+    if (id == nullptr) {
+        return -1;
+    }
+
+    register uint64 a0 asm("a0") = 0x24;
+    register uint64 a1 asm("a1") = (uint64)id;
+
+    asm volatile(
+        "ecall"
+        : "+r"(a0)
+        : "r"(a1)
+        : "memory"
+    );
+
+    return (int)a0;
 }
 

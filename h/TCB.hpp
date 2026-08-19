@@ -50,11 +50,20 @@ private:
     // Da li se nit završila.
     bool finished;
 
+    // Da li nit čeka na semaforu.
+    // Nit ne sme da se vrati u red spremnih ako je blokirana
+    bool blocked;
+
+    //waitResult nam treba da probuđena nit zna zašto je probuđena.
+    // <0 ako je semafor ugasen znaci odblokirane su sve niti
+    int waitResult;
+
     // Sledeća nit u redu Scheduler-a.
     _thread* next;
 
     // Nit koja se trenutno izvršava.
     static _thread* running;
+
 
     _thread(Body body, void* arg, uint64* stackTop);
 
@@ -62,10 +71,12 @@ private:
     static void threadWrapper();
 
     friend class Scheduler;
+    friend class _sem;
 
     // Alokacija TCB-a pomoću našeg MemoryAllocator-a.
     void* operator new(size_t size) noexcept;
     void operator delete(void* ptr) noexcept;
+    //noexcept ne baca izuzetak
 };
 
 // Asemblerska promena registara sp i ra.

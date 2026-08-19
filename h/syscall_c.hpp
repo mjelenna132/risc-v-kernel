@@ -1,7 +1,7 @@
 //
 // Created by jelena on 8/12/26.
 //
-
+// SPISAK FUNKCIJA KOJE KORISNIK MOZE DA POZOVE
 #ifndef OS_PROJECT_SYSCALL_C_HPP
 #define OS_PROJECT_SYSCALL_C_HPP
 #include "../lib/hw.h"
@@ -32,4 +32,12 @@ const int EOF = -1;
 char getc();
 
 void putc(char character);
+
+class _sem;
+using sem_t = _sem*;
+
+int sem_open(sem_t* handle, unsigned init);
+int sem_close(sem_t handle);
+int sem_wait(sem_t id);
+int sem_signal(sem_t id);
 #endif //OS_PROJECT_SYSCALL_C_HPP

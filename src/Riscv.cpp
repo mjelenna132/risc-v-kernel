@@ -6,6 +6,7 @@
 #include "../h/MemoryAllocator.hpp"
 #include "../h/TCB.hpp"
 #include "../lib/console.h"
+#include "../h/Semaphore.hpp"
 
 extern "C" uint64 handleSupervisorTrap(
     uint64 code,
@@ -77,6 +78,35 @@ extern "C" uint64 handleSupervisorTrap(
         // Ispis znaka preko gotove biblioteke
         __putc((char)argument1);
         result = 0;
+    }
+    else if (code == 0x21) {
+        // sem_open(handle, init)
+        result = (uint64)_sem::open(
+            (_sem**)argument1,
+            (unsigned)argument2
+        );
+    }
+    else if (code == 0x22) {
+        // sem_close(handle)
+        result = (uint64)_sem::close(
+            (_sem*)argument1
+        );
+    }
+    else if (code == 0x23) {
+        // sem_wait(handle)
+        _sem* semaphore = (_sem*)argument1;
+
+        result = semaphore != nullptr
+            ? (uint64)semaphore->wait()
+            : (uint64)-1;
+    }
+    else if (code == 0x24) {
+        // sem_signal(handle)
+        _sem* semaphore = (_sem*)argument1;
+
+        result = semaphore != nullptr
+            ? (uint64)semaphore->signal()
+            : (uint64)-1;
     }
     else {
         result = (uint64)-1;
