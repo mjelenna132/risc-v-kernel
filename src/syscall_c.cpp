@@ -211,3 +211,25 @@ int sem_signal(sem_t id)
     return (int)a0;
 }
 
+int time_sleep(time_t time)
+{
+    // Spavanje od 0 perioda nema efekta.
+    if (time == 0) {
+        return 0;
+    }
+
+    // a0 = kod sistemskog poziva, a1 = broj perioda spavanja.
+    register uint64 a0 asm("a0") = 0x31;
+    register uint64 a1 asm("a1") = (uint64)time;
+
+    asm volatile(
+        "ecall"
+        : "+r"(a0)
+        : "r"(a1)
+        : "memory"
+    );
+
+    // Kernel vraća rezultat kroz registar a0.
+    return (int)a0;
+}
+

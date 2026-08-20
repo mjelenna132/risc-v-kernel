@@ -26,6 +26,12 @@ public:
     // Priprema TCB početne main niti.
     static void initialize();
 
+    // Uspavljuje tekuću nit na zadati broj perioda tajmera.
+    static int sleep(uint64 time);
+
+    // Poziva se pri svakom prekidu tajmera.
+    static void timerTick(bool allowPreemption);
+
 private:
     struct Context {
         // Mesto na kome nit nastavlja izvršavanje.
@@ -58,11 +64,20 @@ private:
     // <0 ako je semafor ugasen znaci odblokirane su sve niti
     int waitResult;
 
+    // Broj perioda do buđenja ove niti.
+    uint64 sleepTime;
+
     // Sledeća nit u redu Scheduler-a.
     _thread* next;
 
     // Nit koja se trenutno izvršava.
     static _thread* running;
+
+    // Prva nit u listi uspavanih niti.
+    static _thread* sleepingHead;
+
+    // Koliko perioda tajmera tekuća nit već izvršava.
+    static uint64 timeSliceCounter;
 
 
     _thread(Body body, void* arg, uint64* stackTop);
@@ -77,6 +92,11 @@ private:
     void* operator new(size_t size) noexcept;
     void operator delete(void* ptr) noexcept;
     //noexcept ne baca izuzetak
+    //
+
+    // Ubacuje nit u uređenu listu uspavanih niti.
+    static void addToSleepList(_thread* thread);
+
 };
 
 // Asemblerska promena registara sp i ra.

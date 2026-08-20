@@ -3,6 +3,7 @@
 //
 #include "../h/syscall_cpp.hpp"
 
+
 void* operator new(size_t size) {
     return mem_alloc(size);
 }
@@ -49,9 +50,9 @@ void Thread::dispatch() {
     thread_dispatch();
 }
 
-int Thread::sleep(time_t) {
-    // Implementiraćemo u delu sa tajmerom.
-    return -1;
+int Thread::sleep(time_t time) {
+
+    return time_sleep(time);
 }
 
 Semaphore::Semaphore(unsigned init)

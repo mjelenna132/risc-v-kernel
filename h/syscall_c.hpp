@@ -15,6 +15,7 @@ int mem_free(void* ptr);
 class _thread;
 typedef _thread* thread_t;
 
+
 // Pravi novu nit.
 int thread_create(
     thread_t* handle,
@@ -40,4 +41,11 @@ int sem_open(sem_t* handle, unsigned init);
 int sem_close(sem_t handle);
 int sem_wait(sem_t id);
 int sem_signal(sem_t id);
+
+
+
+// Uspavljuje tekuću nit na zadati broj perioda tajmera.
+int time_sleep(time_t time);
+// Jedinica vremena predstavlja jednu periodu tajmera.
+using time_t = unsigned long;
 #endif //OS_PROJECT_SYSCALL_C_HPP

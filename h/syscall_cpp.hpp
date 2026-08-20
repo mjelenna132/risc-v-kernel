@@ -14,7 +14,7 @@ public:
     int start();
 
     static void dispatch();
-    static int sleep(time_t);
+    static int sleep(time_t time);
 
 protected:
     Thread();

@@ -19,12 +19,31 @@ extern "C" uint64 handleSupervisorTrap(
 
     // Prekid od tajmera
     if (cause == 0x8000000000000001UL) {
+        // Čuvamo mesto na kome prekinuta nit treba da nastavi.
+        uint64 sepc = Riscv::readSepc();
+        uint64 sstatus = Riscv::readSstatus();
+
         uint64 mask = 1UL << 1;
 
-        // Brišemo zahtev za prekid
-        __asm__ volatile("csrc sip, %0" : : "r"(mask));
+        // Brišemo zahtev za tajmerski prekid.
+        __asm__ volatile(
+            "csrc sip, %0"
+            :
+            : "r"(mask)
+        );
 
-        // Ne menjamo vrednost registra a0
+        // Ažuriramo uspavane niti i vremenski odsečak.
+        // Ovde može doći do promene tekuće niti.
+        // SPP je 0 ako je prekid stigao iz korisničkog režima.
+        bool fromUserMode = (sstatus & (1UL << 8)) == 0;
+
+        _thread::timerTick(fromUserMode);
+
+        // Kada se ova nit ponovo izabere, vraćamo njene podatke.
+        Riscv::writeSstatus(sstatus);
+        Riscv::writeSepc(sepc);
+
+        // Tajmerski prekid ne menja prethodnu vrednost registra a0.
         return code;
     }
 
@@ -69,6 +88,10 @@ extern "C" uint64 handleSupervisorTrap(
     else if (code == 0x13) {
         _thread::dispatch();
         result = 0;
+    }
+    else if (code == 0x31) {
+        // argument1 sadrži broj perioda spavanja iz registra a1.
+        result = (uint64)_thread::sleep(argument1);
     }
     else if (code == 0x41) {
         // Učitavanje znaka preko gotove biblioteke
