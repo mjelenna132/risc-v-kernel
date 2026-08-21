@@ -88,3 +88,28 @@ void Console::putc(char character)
 {
     ::putc(character);
 }
+
+
+PeriodicThread::PeriodicThread(time_t period)
+    : Thread(),
+      period(period)
+{
+}
+
+void PeriodicThread::run()
+{
+    while (period != 0) {
+        periodicActivation();
+
+        // periodicActivation() je možda pozvao terminate().
+        if (period != 0) {
+            Thread::sleep(period);
+        }
+    }
+}
+
+void PeriodicThread::terminate()
+{
+    // Nula označava da više nema novih aktivacija.
+    period = 0;
+}

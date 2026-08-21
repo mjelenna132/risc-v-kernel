@@ -42,6 +42,12 @@ int sem_close(sem_t handle);
 int sem_wait(sem_t id);
 int sem_signal(sem_t id);
 
+// Zauzima n jedinica semafora.
+int sem_wait_n(sem_t id, unsigned n);
+
+// Oslobađa n jedinica semafora.
+int sem_signal_n(sem_t id, unsigned n);
+
 
 
 // Uspavljuje tekuću nit na zadati broj perioda tajmera.

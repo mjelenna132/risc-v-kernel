@@ -233,3 +233,53 @@ int time_sleep(time_t time)
     return (int)a0;
 }
 
+int sem_wait_n(sem_t id, unsigned n)
+{
+    if (id == nullptr) {
+        return -1;
+    }
+
+    // Kod sistemskog poziva.
+    register uint64 a0 asm("a0") = 0x25;
+
+    // Pokazivač na semafor.
+    register uint64 a1 asm("a1") = (uint64)id;
+
+    // Broj jedinica koje tražimo.
+    register uint64 a2 asm("a2") = (uint64)n;
+
+    asm volatile(
+        "ecall"
+        : "+r"(a0)
+        : "r"(a1), "r"(a2)
+        : "memory"
+    );
+
+    return (int)a0;
+}
+
+int sem_signal_n(sem_t id, unsigned n)
+{
+    if (id == nullptr) {
+        return -1;
+    }
+
+    // Kod sistemskog poziva.
+    register uint64 a0 asm("a0") = 0x26;
+
+    // Pokazivač na semafor.
+    register uint64 a1 asm("a1") = (uint64)id;
+
+    // Broj jedinica koje oslobađamo.
+    register uint64 a2 asm("a2") = (uint64)n;
+
+    asm volatile(
+        "ecall"
+        : "+r"(a0)
+        : "r"(a1), "r"(a2)
+        : "memory"
+    );
+
+    return (int)a0;
+}
+

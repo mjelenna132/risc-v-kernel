@@ -20,8 +20,8 @@ extern "C" uint64 handleSupervisorTrap(
     // Prekid od tajmera
     if (cause == 0x8000000000000001UL) {
         // Čuvamo mesto na kome prekinuta nit treba da nastavi.
-        uint64 sepc = Riscv::readSepc();
-        uint64 sstatus = Riscv::readSstatus();
+        uint64 volatile sepc = Riscv::readSepc();
+        uint64 volatile sstatus = Riscv::readSstatus();
 
         uint64 mask = 1UL << 1;
 
@@ -130,6 +130,30 @@ extern "C" uint64 handleSupervisorTrap(
         result = semaphore != nullptr
             ? (uint64)semaphore->signal()
             : (uint64)-1;
+    }
+    else if (code == 0x25) {
+        _sem* semaphore = (_sem*)argument1;
+
+        if (semaphore == nullptr) {
+            result = (uint64)-1;
+        }
+        else {
+            result = (uint64)semaphore->waitN(
+                (unsigned)argument2
+            );
+        }
+    }
+    else if (code == 0x26) {
+        _sem* semaphore = (_sem*)argument1;
+
+        if (semaphore == nullptr) {
+            result = (uint64)-1;
+        }
+        else {
+            result = (uint64)semaphore->signalN(
+                (unsigned)argument2
+            );
+        }
     }
     else {
         result = (uint64)-1;

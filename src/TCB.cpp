@@ -32,6 +32,7 @@ _thread::_thread(Body body, void* arg, uint64* stackTop)
       finished(false),
       blocked(false),
       waitResult(0),
+      waitUnits(0),
       sleepTime(0),
       next(nullptr) {
 }
@@ -212,5 +213,7 @@ void _thread::timerTick(bool allowPreemption)
         dispatch();
     }
 }
+
+
 // Created by jelena on 8/13/26.
 //

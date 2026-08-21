@@ -87,7 +87,7 @@ _thread* _sem::removeBlocked()
 int _sem::wait()
 {
     // Ugašen semafor ne može da se koristi.
-    if (closed) {
+    /*if (closed) {
         return -1;
     }
 
@@ -110,12 +110,14 @@ int _sem::wait()
 
     // Kada se ova nit probudi, nastavlja odavde.
     return _thread::running->waitResult;
+    */
+    return waitN(1);
 }
 
 int _sem::signal()
 {
     // Ugašen semafor ne može da se koristi.
-    if (closed) {
+    /*if (closed) {
         return -1;
     }
 
@@ -134,6 +136,9 @@ int _sem::signal()
     }
 
     return 0;
+
+    */
+    return signalN(1);
 }
 
 int _sem::close(_sem* handle)
@@ -154,6 +159,7 @@ int _sem::close(_sem* handle)
 
         // Wait vraća grešku jer je semafor ugašen.
         thread->waitResult = -1;
+        thread->waitUnits = 0;
 
         Scheduler::put(thread);
 
@@ -162,6 +168,89 @@ int _sem::close(_sem* handle)
 
     // Oslobađamo memoriju objekta semafora.
     delete handle;
+
+    return 0;
+}
+
+int _sem::waitN(unsigned n)
+{
+    // Čekanje nula jedinica uvek uspeva.
+    if (n == 0) {
+        return 0;
+    }
+
+    // Ne može se čekati na zatvorenom semaforu.
+    if (closed) {
+        return -1;
+    }
+
+    // Ima dovoljno dostupnih jedinica.
+    if (value >= n) {
+        value -= n;
+        return 0;
+    }
+
+    // Nema dovoljno: tekuća nit se blokira.
+    _thread* current = _thread::running;
+
+    current->blocked = true;
+    current->waitResult = 0;
+    current->waitUnits = n;
+    current->next = nullptr;
+
+    // Dodajemo je na kraj reda blokiranih niti.
+    if (blockedTail != nullptr) {
+        blockedTail->next = current;
+    }
+    else {
+        blockedHead = current;
+    }
+
+    blockedTail = current;
+
+    // Pokreće se neka druga spremna nit.
+    _thread::dispatch();
+
+    // Kada se ova nit probudi, nastavlja odavde.
+    return current->waitResult;
+}
+
+int _sem::signalN(unsigned n)
+{
+    if (closed) {
+        return -1;
+    }
+
+    // Signaliziranje nula jedinica ništa ne menja.
+    if (n == 0) {
+        return 0;
+    }
+
+    // Dodajemo n dostupnih jedinica.
+    value += n;
+
+    // Budimo niti redom, dok imamo dovoljno resursa.
+    while (blockedHead != nullptr &&
+           value >= blockedHead->waitUnits) {
+
+        _thread* awakened = blockedHead;
+        blockedHead = blockedHead->next;
+
+        if (blockedHead == nullptr) {
+            blockedTail = nullptr;
+        }
+
+        // Nit dobija onoliko jedinica koliko je tražila.
+        value -= awakened->waitUnits;
+
+        awakened->next = nullptr;
+        awakened->blocked = false;
+        awakened->waitResult = 0;
+        awakened->waitUnits = 0;
+
+        // Vraćamo probuđenu nit među spremne niti.
+        Scheduler::put(awakened);
+           }
 
     return 0;
 }

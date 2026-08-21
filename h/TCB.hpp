@@ -64,6 +64,9 @@ private:
     // <0 ako je semafor ugasen znaci odblokirane su sve niti
     int waitResult;
 
+    // Koliko jedinica resursa nit čeka od semafora.
+    unsigned waitUnits;
+
     // Broj perioda do buđenja ove niti.
     uint64 sleepTime;
 

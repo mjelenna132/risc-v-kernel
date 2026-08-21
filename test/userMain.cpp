@@ -1,4 +1,5 @@
 #include "printing.hpp"
+#include "../h/syscall_cpp.hpp"
 
 #define LEVEL_1_IMPLEMENTED 1
 #define LEVEL_2_IMPLEMENTED 1
@@ -30,7 +31,110 @@
 
 #endif
 
-void userMain() {
+
+static sem_t testSemaphore;
+static volatile bool newSemaphoreTestFinished = false;
+
+static void waitForThree(void*)
+{
+    printString("Nit: cekam 3 jedinice\n");
+
+    int result = sem_wait_n(testSemaphore, 3);
+
+    if (result == 0) {
+        printString("Nit: dobila sam 3 jedinice\n");
+    }
+    else {
+        printString("GRESKA: sem_wait_n nije uspeo\n");
+    }
+
+    newSemaphoreTestFinished = true;
+}
+
+static void testSemaphoreN()
+{
+    printString("Pocetak testa sem_wait_n/sem_signal_n\n");
+
+    sem_open(&testSemaphore, 0);
+
+    thread_t thread;
+    thread_create(&thread, waitForThree, nullptr);
+
+    // Dajemo niti priliku da pozove sem_wait_n i blokira se.
+    thread_dispatch();
+
+    printString("Glavna nit: dodajem 2 jedinice\n");
+    sem_signal_n(testSemaphore, 2);
+
+    // Nit još ne sme da se probudi jer je tražila 3.
+    thread_dispatch();
+
+    if (newSemaphoreTestFinished) {
+        printString("GRESKA: nit se prerano probudila\n");
+    }
+    else {
+        printString("Dobro: nit i dalje ceka\n");
+    }
+
+    printString("Glavna nit: dodajem jos 1 jedinicu\n");
+    sem_signal_n(testSemaphore, 1);
+
+    // Čekamo da probuđena nit završi.
+    while (!newSemaphoreTestFinished) {
+        thread_dispatch();
+    }
+
+    sem_close(testSemaphore);
+
+    printString("KRAJ TESTA SEMAFORA\n");
+}
+
+static volatile bool periodicTestFinished = false;
+
+class TestPeriodicThread : public PeriodicThread {
+public:
+    TestPeriodicThread()
+        : PeriodicThread(3),
+          activationCount(0)
+    {
+    }
+
+protected:
+    void periodicActivation() override
+    {
+        activationCount++;
+
+        printString("Periodicna aktivacija broj ");
+        printInt(activationCount);
+        printString("\n");
+
+        if (activationCount == 3) {
+            terminate();
+            periodicTestFinished = true;
+        }
+    }
+
+private:
+    int activationCount;
+};
+
+static void testPeriodic()
+{
+    printString("POCETAK PERIODICNOG TESTA\n");
+
+    periodicTestFinished = false;
+
+    TestPeriodicThread* thread = new TestPeriodicThread();
+    thread->start();
+
+    while (!periodicTestFinished) {
+        Thread::dispatch();
+    }
+
+    printString("KRAJ PERIODICNOG TESTA\n");
+}
+
+/*void userMain() {
     printString("Unesite broj testa? [1-7]\n");
     int test = getc() - '0';
     getc(); // Enter posle broja
@@ -103,4 +207,14 @@ void userMain() {
         default:
             printString("Niste uneli odgovarajuci broj za test\n");
     }
+
+}*/
+
+void userMain()
+{
+    testSemaphoreN();
+    testPeriodic();
+    return;
+
+    // Postojeci kod...
 }

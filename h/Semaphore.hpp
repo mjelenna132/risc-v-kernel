@@ -24,6 +24,9 @@ public:
     // Vraća jednu jedinicu resursa.
     int signal();
 
+    int waitN(unsigned n);
+    int signalN(unsigned n);
+
 private:
     explicit _sem(unsigned init);
 

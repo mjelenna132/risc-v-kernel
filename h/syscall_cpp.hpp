@@ -30,6 +30,20 @@ private:
     static void runWrapper(void* thread);
 };
 
+class PeriodicThread : public Thread {
+public:
+    void terminate();
+
+protected:
+    PeriodicThread(time_t period);
+    virtual void periodicActivation() {}
+
+private:
+    time_t period;
+
+    void run() override;
+};
+
 class Semaphore {
 public:
     Semaphore(unsigned init = 1);
