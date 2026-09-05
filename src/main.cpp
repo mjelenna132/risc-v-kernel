@@ -1,45 +1,62 @@
 #include "../h/Riscv.hpp"
 #include "../h/TCB.hpp"
 #include "../h/syscall_c.hpp"
+#include "../h/KernelConsole.hpp"
 #include "../lib/hw.h"
 
 extern void userMain();
 
-static volatile bool userMainFinished = false;
-
-// Ova funkcija pokreće javne testove u korisničkoj niti
 static void userMainWrapper(void*)
 {
     userMain();
-    userMainFinished = true;
 }
 
 int main()
 {
-    // Postavljamo prekidnu rutinu
+    // Inicijalizaciju obavljamo sa isključenim prekidima.
+    asm volatile("csrci sstatus, 2" ::: "memory");
+
     Riscv::writeStvec((uint64)&supervisorTrap);
 
-    // Glavna nit već postoji, pa samo pravimo njen TCB
+    // TCB početne sistemske main niti.
     _thread::initialize();
+
+    // Pripremamo bafere, semafore i izlaznu sistemsku nit.
+    if (KernelConsole::initialize() < 0) {
+        *(volatile uint32*)0x100000 = 0x5555;
+        return -1;
+    }
 
     thread_t userThread = nullptr;
 
-    // Pokrećemo javne testove kao korisničku nit
     if (thread_create(
             &userThread,
             userMainWrapper,
             nullptr
         ) < 0) {
+
         *(volatile uint32*)0x100000 = 0x5555;
         return -1;
         }
 
-    // Main čeka da se userMain završi
-    while (!userMainFinished) {
+    // Čekamo sve korisničke niti, uključujući one
+    // koje je userMain napravio pre svog završetka.
+    while (_thread::hasActiveUserThreads()) {
+        // Omogućavamo prekide i kada samo main ostane spreman.
+        asm volatile("csrsi sstatus, 2" ::: "memory");
+
+        thread_dispatch();
+
+        // Provere stanja ponovo radimo sa isključenim prekidima.
+        asm volatile("csrci sstatus, 2" ::: "memory");
+    }
+
+    // Izlaznoj niti dajemo procesor dok sve preostale
+    // znakove iz softverskog bafera ne preda kontroleru.
+    while (!KernelConsole::outputEmpty()) {
         thread_dispatch();
     }
 
-    // Gasimo emulator
     *(volatile uint32*)0x100000 = 0x5555;
 
     return 0;

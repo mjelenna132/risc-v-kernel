@@ -7,15 +7,19 @@
 _thread* _thread::running = nullptr;
 _thread* _thread::sleepingHead = nullptr;
 uint64 _thread::timeSliceCounter = 0;
+_thread* _thread::threadToDelete = nullptr;
+unsigned _thread::activeUserThreads = 0;
 
-void* _thread::operator new(size_t size) noexcept {
+void* _thread::operator new(size_t size) noexcept
+{
     size_t blockCount =
         (size + MEM_BLOCK_SIZE - 1) / MEM_BLOCK_SIZE;
 
     return MemoryAllocator::mem_alloc(blockCount);
 }
 
-void _thread::operator delete(void* ptr) noexcept {
+void _thread::operator delete(void* ptr) noexcept
+{
     MemoryAllocator::mem_free(ptr);
 }
 
@@ -34,10 +38,32 @@ _thread::_thread(Body body, void* arg, uint64* stackTop)
       waitResult(0),
       waitUnits(0),
       sleepTime(0),
-      next(nullptr) {
+      next(nullptr),
+      systemThread(false)
+{
 }
 
-void _thread::initialize() {
+_thread::~_thread()
+{
+    if (stack != nullptr) {
+        MemoryAllocator::mem_free(stack);
+    }
+}
+
+void _thread::cleanupFinishedThread()
+{
+    if (threadToDelete != nullptr &&
+        threadToDelete != running) {
+
+        _thread* finishedThread = threadToDelete;
+        threadToDelete = nullptr;
+
+        delete finishedThread;
+    }
+}
+
+void _thread::initialize()
+{
     if (running == nullptr) {
         // Main već radi, pa mu ne pravimo novi stek.
         running = new _thread(nullptr, nullptr, nullptr);
@@ -45,7 +71,8 @@ void _thread::initialize() {
 }
 
 int _thread::create(_thread** handle, Body body,
-                    void* arg, uint64* stackTop) {
+                    void* arg, uint64* stackTop)
+{
     if (handle == nullptr || body == nullptr ||
         stackTop == nullptr) {
         return -1;
@@ -58,27 +85,80 @@ int _thread::create(_thread** handle, Body body,
     }
 
     *handle = thread;
+    activeUserThreads++;
     Scheduler::put(thread);
 
     return 0;
 }
 
-int _thread::exit() {
-    if (running == nullptr) {
+int _thread::createSystem(_thread** handle, Body body, void* arg)
+{
+    // Poziva se iz sistemskog režima sa isključenim prekidima.
+    if (handle == nullptr || body == nullptr) {
         return -1;
     }
 
-    // Završenu nit više ne vraćamo u Scheduler.
+    *handle = nullptr;
+
+    size_t blocks = DEFAULT_STACK_SIZE / MEM_BLOCK_SIZE;
+
+    if (DEFAULT_STACK_SIZE % MEM_BLOCK_SIZE != 0) {
+        blocks++;
+    }
+
+    // Već smo u jezgru, pa direktno koristimo alokator.
+    uint64* stackBase =
+        (uint64*)MemoryAllocator::mem_alloc(blocks);
+
+    if (stackBase == nullptr) {
+        return -2;
+    }
+
+    uint64* stackTop =
+        stackBase + DEFAULT_STACK_SIZE / sizeof(uint64);
+
+    _thread* thread = new _thread(body, arg, stackTop);
+
+    if (thread == nullptr) {
+        MemoryAllocator::mem_free(stackBase);
+        return -3;
+    }
+
+    // Postavljamo režim pre ubacivanja među spremne niti.
+    thread->systemThread = true;
+
+    *handle = thread;
+    Scheduler::put(thread);
+
+    return 0;
+}
+
+int _thread::exit()
+{
+    if (running == nullptr || running->finished) {
+        return -1;
+    }
+
+    // Početna main nit nema body i nije uključena u brojač.
+    if (!running->systemThread && running->body != nullptr) {
+        activeUserThreads--;
+    }
+
     running->finished = true;
+
+    // Oslobađanje obavlja druga nit nakon promene steka.
+    threadToDelete = running;
+
     dispatch();
 
     return 0;
 }
 
-void _thread::dispatch() {
+void _thread::dispatch()
+{
     _thread* old = running;
 
-    // Nezavršena nit se vraća na kraj reda.
+    // Spremnu nezavršenu nit vraćamo na kraj reda.
     if (old != nullptr && !old->finished && !old->blocked) {
         Scheduler::put(old);
     }
@@ -88,35 +168,41 @@ void _thread::dispatch() {
     // Nova nit dobija ceo vremenski odsečak.
     timeSliceCounter = 0;
 
-    // Nema druge niti za izvršavanje.
+    // Trenutni main ostaje spreman dok čeka korisničke niti.
     if (running == nullptr) {
         running = old;
         return;
     }
 
-    // Ako je izabrana ista nit, nema promene.
     if (running == old) {
         return;
     }
 
     contextSwitch((uint64*)&old->context,
                   (uint64*)&running->context);
+
+    cleanupFinishedThread();
 }
 
 void _thread::threadWrapper()
 {
-    // Korisnička funkcija niti mora da radi u korisničkom režimu
-    Riscv::popSppSpie();
+    // Već smo na steku nove niti.
+    cleanupFinishedThread();
 
-    // Pokrećemo funkciju ove niti
+    if (running->systemThread) {
+        // Ostajemo u sistemskom režimu i omogućavamo prekide.
+        asm volatile("csrsi sstatus, 2" ::: "memory");
+    }
+    else {
+        // Obične niti prelaze u korisnički režim.
+        Riscv::popSppSpie();
+    }
+
     running->body(running->arg);
 
-    // Kada se funkcija završi, gasimo nit sistemskim pozivom
     thread_exit();
 }
-// A(5) -> D(2) -> B(2) -> C(6)
- //D se budi 2 periode posle A, odnosno ukupno za 7 perioda.
- // B se 4 periode posle A, budi za 9 perioda.
+
 void _thread::addToSleepList(_thread* thread)
 {
     if (thread == nullptr) {
@@ -128,26 +214,23 @@ void _thread::addToSleepList(_thread* thread)
     _thread* previous = nullptr;
     _thread* current = sleepingHead;
 
-    // Tražimo mesto na kome treba ubaciti nit.
+    // Vremena u listi predstavljaju razlike između buđenja.
     while (current != nullptr &&
            remainingTime > current->sleepTime) {
 
         remainingTime -= current->sleepTime;
         previous = current;
         current = current->next;
-           }
+    }
 
-    // Čuvamo relativno vreme u odnosu na prethodnu nit.
     thread->sleepTime = remainingTime;
     thread->next = current;
 
-    // Vreme sledeće niti umanjujemo zbog umetnute niti.
     if (current != nullptr) {
         current->sleepTime -= remainingTime;
     }
 
     if (previous == nullptr) {
-        // Nova nit se budi prva.
         sleepingHead = thread;
     }
     else {
@@ -157,37 +240,29 @@ void _thread::addToSleepList(_thread* thread)
 
 int _thread::sleep(uint64 time)
 {
-    // Spavanje od 0 perioda nema efekta.
     if (time == 0) {
         return 0;
     }
 
-    // Tekuća nit više nije spremna za izvršavanje.
     running->blocked = true;
     running->sleepTime = time;
 
-    // Dodajemo je u listu uspavanih niti.
     addToSleepList(running);
 
-    // Procesor predajemo sledećoj spremnoj niti.
     dispatch();
 
-
-    // Ovde se vraćamo tek kada se nit probudi.
     return 0;
 }
 
 void _thread::timerTick(bool allowPreemption)
 {
-    // Ažuriranje uspavanih niti.
     if (sleepingHead != nullptr) {
-
-        // Smanjujemo samo vreme prve niti u relativnoj listi.
+        // Smanjujemo samo vreme prve niti.
         if (sleepingHead->sleepTime > 0) {
             sleepingHead->sleepTime--;
         }
 
-        // Budimo sve niti čije je vreme stiglo do nule.
+        // Budimo sve niti kojima je isteklo vreme.
         while (sleepingHead != nullptr &&
                sleepingHead->sleepTime == 0) {
 
@@ -197,23 +272,18 @@ void _thread::timerTick(bool allowPreemption)
             awakened->next = nullptr;
             awakened->blocked = false;
 
-            // Probuđena nit ponovo postaje spremna.
             Scheduler::put(awakened);
-               }
+        }
     }
-    // Kernel ne preotimamo dok obrađuje sistemski poziv.
+
+    // Sistemski kod trenutno ne preotimamo.
     if (!allowPreemption) {
         return;
     }
-    // Brojimo koliko dugo tekuća nit koristi procesor.
+
     timeSliceCounter++;
 
-    // Kada istekne njen vremenski odsečak, menjamo nit.
     if (timeSliceCounter >= DEFAULT_TIME_SLICE) {
         dispatch();
     }
 }
-
-
-// Created by jelena on 8/13/26.
-//

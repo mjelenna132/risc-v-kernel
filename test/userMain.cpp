@@ -31,7 +31,7 @@
 
 #endif
 
-
+#if 0
 static sem_t testSemaphore;
 static volatile bool newSemaphoreTestFinished = false;
 
@@ -133,8 +133,9 @@ static void testPeriodic()
 
     printString("KRAJ PERIODICNOG TESTA\n");
 }
+#endif
 
-/*void userMain() {
+void userMain() {
     printString("Unesite broj testa? [1-7]\n");
     int test = getc() - '0';
     getc(); // Enter posle broja
@@ -208,13 +209,4 @@ static void testPeriodic()
             printString("Niste uneli odgovarajuci broj za test\n");
     }
 
-}*/
-
-void userMain()
-{
-    testSemaphoreN();
-    testPeriodic();
-    return;
-
-    // Postojeci kod...
 }
