@@ -88,7 +88,7 @@ static void testSemaphoreN()
 
     printString("KRAJ TESTA SEMAFORA\n");
 }
-
+#endif
 static volatile bool periodicTestFinished = false;
 
 class TestPeriodicThread : public PeriodicThread {
@@ -133,9 +133,60 @@ static void testPeriodic()
 
     printString("KRAJ PERIODICNOG TESTA\n");
 }
-#endif
 
+static volatile bool stopSpinner = false;
+static volatile bool spinnerFinished = false;
+static volatile uint64 spinCount = 0;
+
+static void spinnerBody(void*)
+{
+    // Nema sistemskih poziva, blokiranja ni dispatch-a.
+    while (!stopSpinner) {
+        spinCount++;
+    }
+
+    spinnerFinished = true;
+}
+
+static void testTimerPreemption()
+{
+    stopSpinner = false;
+    spinnerFinished = false;
+    spinCount = 0;
+
+    printString("POCETAK TESTA PREOTIMANJA\n");
+
+    thread_t spinner = nullptr;
+
+    if (thread_create(&spinner, spinnerBody, nullptr) < 0) {
+        printString("GRESKA: kreiranje niti nije uspelo\n");
+        return;
+    }
+
+    // Kada spinner počne da vrti petlju, tajmer mora
+    // da mu oduzme procesor da bismo nastavili ovde.
+    while (spinCount < 100000) {
+        thread_dispatch();
+    }
+
+    stopSpinner = true;
+
+    while (!spinnerFinished) {
+        thread_dispatch();
+    }
+
+    printString("PREOTIMANJE: PROSLO\n");
+}
+
+static void delayedWorker(void*)
+{
+    Thread::sleep(20);
+    printString("DETE: probudilo se i zavrsava\n");
+}
+
+/*
 void userMain() {
+
     printString("Unesite broj testa? [1-7]\n");
     int test = getc() - '0';
     getc(); // Enter posle broja
@@ -210,3 +261,289 @@ void userMain() {
     }
 
 }
+*/
+static sem_t closingSemaphore;
+
+struct CloseWaiter {
+    volatile bool finished;
+    int result;
+};
+
+static CloseWaiter closeWaiters[2];
+
+static void closeWaiterBody(void* argument)
+{
+    CloseWaiter* waiter = (CloseWaiter*)argument;
+
+    waiter->result = sem_wait(closingSemaphore);
+    waiter->finished = true;
+}
+
+static void testSemaphoreClose()
+{
+    printString("POCETAK TESTA SEM_CLOSE\n");
+
+    if (sem_open(&closingSemaphore, 0) < 0) {
+        printString("GRESKA: sem_open\n");
+        return;
+    }
+
+    int created = 0;
+
+    for (int i = 0; i < 2; i++) {
+        closeWaiters[i].finished = false;
+        closeWaiters[i].result = 0;
+
+        thread_t handle = nullptr;
+
+        if (thread_create(
+                &handle, closeWaiterBody, &closeWaiters[i]) < 0) {
+            printString("GRESKA: thread_create\n");
+            break;
+                }
+
+        created++;
+    }
+
+    // Dajemo nitima vreme da stignu do sem_wait i blokiraju se.
+    Thread::sleep(2);
+
+    bool passed = (created == 2);
+
+    for (int i = 0; i < created; i++) {
+        if (closeWaiters[i].finished) {
+            printString("GRESKA: nit nije cekala zatvaranje\n");
+            passed = false;
+        }
+    }
+
+    if (sem_close(closingSemaphore) < 0) {
+        printString("GRESKA: sem_close\n");
+        return;
+    }
+
+    for (int i = 0; i < created; i++) {
+        while (!closeWaiters[i].finished) {
+            thread_dispatch();
+        }
+
+        if (closeWaiters[i].result >= 0) {
+            passed = false;
+        }
+    }
+
+    printString(passed
+        ? "SEM_CLOSE: PROSLO\n"
+        : "SEM_CLOSE: GRESKA\n");
+}
+static sem_t multiSemaphore;
+
+struct MultiWaiter {
+    unsigned units;
+    int result;
+    volatile bool finished;
+};
+
+static MultiWaiter multiWaiters[2];
+
+static void multiWaiterBody(void* argument)
+{
+    MultiWaiter* waiter = (MultiWaiter*)argument;
+
+    waiter->result = sem_wait_n(multiSemaphore, waiter->units);
+    waiter->finished = true;
+}
+
+static void testSemaphoreMultiple()
+{
+    printString("POCETAK TESTA SEM_N VISE NITI\n");
+
+    if (sem_open(&multiSemaphore, 0) < 0) {
+        printString("GRESKA: sem_open\n");
+        return;
+    }
+
+    bool passed = true;
+
+    // Nula ne sme da blokira niti da promeni vrednost.
+    if (sem_wait_n(multiSemaphore, 0) != 0) {
+        passed = false;
+    }
+
+    if (sem_signal_n(multiSemaphore, 0) != 0) {
+        passed = false;
+    }
+
+    int created = 0;
+
+    for (int i = 0; i < 2; i++) {
+        multiWaiters[i].units = i + 2; // Prva trazi 2, druga 3.
+        multiWaiters[i].result = -999;
+        multiWaiters[i].finished = false;
+
+        thread_t handle = nullptr;
+
+        if (thread_create(
+                &handle, multiWaiterBody, &multiWaiters[i]) < 0) {
+            printString("GRESKA: thread_create\n");
+            passed = false;
+            break;
+        }
+
+        created++;
+    }
+
+    Thread::sleep(2);
+
+    for (int i = 0; i < created; i++) {
+        if (multiWaiters[i].finished) {
+            printString("GRESKA: prerano budjenje\n");
+            passed = false;
+        }
+    }
+
+    // Jedan poziv treba da obezbedi resurse za obe niti.
+    if (sem_signal_n(multiSemaphore, 5) != 0) {
+        printString("GRESKA: sem_signal_n\n");
+        sem_close(multiSemaphore);
+        return;
+    }
+
+    for (int i = 0; i < created; i++) {
+        while (!multiWaiters[i].finished) {
+            thread_dispatch();
+        }
+
+        if (multiWaiters[i].result != 0) {
+            passed = false;
+        }
+    }
+
+    if (sem_close(multiSemaphore) != 0) {
+        passed = false;
+    }
+
+    printString(passed
+        ? "SEM_N VISE NITI: PROSLO\n"
+        : "SEM_N VISE NITI: GRESKA\n");
+}
+
+static volatile bool shortThreadFinished = false;
+static bool memoryFreeError = false;
+
+// Privremeno povezujemo alocirane blokove u listu.
+struct MemoryProbe {
+    MemoryProbe* next;
+};
+
+static unsigned countAvailableBlocks()
+{
+    MemoryProbe* head = nullptr;
+    unsigned count = 0;
+
+    while (true) {
+        MemoryProbe* block = (MemoryProbe*)mem_alloc(4096);
+
+        if (block == nullptr) {
+            break;
+        }
+
+        block->next = head;
+        head = block;
+        count++;
+    }
+
+    // Vracamo svu memoriju koju je provera zauzela.
+    while (head != nullptr) {
+        MemoryProbe* next = head->next;
+
+        if (mem_free(head) != 0) {
+            memoryFreeError = true;
+        }
+
+        head = next;
+    }
+
+    return count;
+}
+
+static void shortThreadBody(void*)
+{
+    shortThreadFinished = true;
+    // Povratak iz funkcije zavrsava nit.
+}
+
+static void testThreadMemory()
+{
+    printString("POCETAK TESTA MEMORIJE NITI\n");
+
+    // Prethodne test-niti dobijaju vreme da zavrse.
+    Thread::sleep(2);
+
+    memoryFreeError = false;
+    unsigned before = countAvailableBlocks();
+    unsigned created = 0;
+
+    for (unsigned i = 0; i < 256; i++) {
+        shortThreadFinished = false;
+        thread_t handle = nullptr;
+
+        if (thread_create(
+                &handle, shortThreadBody, nullptr) < 0) {
+            printString("GRESKA: kreiranje kratke niti\n");
+            break;
+        }
+
+        created++;
+
+        while (!shortThreadFinished) {
+            thread_dispatch();
+        }
+
+        // Dajemo niti priliku da dovrsi izlazak.
+        thread_dispatch();
+    }
+
+    // Oznaka finished se postavlja pre stvarnog izlaska iz niti.
+    Thread::sleep(2);
+
+    unsigned after = countAvailableBlocks();
+
+    printString("Dostupni blokovi pre: ");
+    printInt(before);
+    printString("\nDostupni blokovi posle: ");
+    printInt(after);
+    printString("\n");
+
+    if (created == 256 &&
+        before > 0 &&
+        before == after &&
+        !memoryFreeError) {
+        printString("MEMORIJA NITI: PROSLO\n");
+    }
+    else {
+        printString("MEMORIJA NITI: GRESKA\n");
+    }
+}
+    void userMain()
+    {
+
+        testTimerPreemption();
+        testSemaphoreClose();
+        testSemaphoreMultiple();
+        testThreadMemory();
+        testPeriodic();
+        thread_t child = nullptr;
+
+        if (thread_create(&child, delayedWorker, nullptr) < 0) {
+            printString("GRESKA: kreiranje deteta\n");
+            return;
+        }
+
+        printString("USERMAIN: zavrsavam\n");
+        return;
+
+        // Postojeci kod za izbor testova ostaje ispod.
+    }
+
+    // Postojeći kod za izbor testova ostaje ispod.

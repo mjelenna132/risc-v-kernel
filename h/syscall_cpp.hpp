@@ -41,7 +41,7 @@ protected:
 private:
     time_t period;
 
-    void run() override;
+    static void periodicWrapper(void* argument);
 };
 
 class Semaphore {
