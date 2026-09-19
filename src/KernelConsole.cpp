@@ -36,8 +36,7 @@ int KernelConsole::initialize()
         return -2;
     }
 
-    // ConsoleBuffer ima 256 mesta.
-    if (_sem::open(&outputSpaces, 256) < 0) {
+    if (_sem::open(&outputSpaces, ConsoleBuffer::capacity()) < 0) {
         _sem::close(outputItems);
         _sem::close(inputItems);
 
@@ -149,6 +148,13 @@ void KernelConsole::handleInterrupt()
 
 void KernelConsole::outputBody(void*)
 {
+    // Najveći broj znakova poslatih u jednom nizu bez ustupanja
+    // procesora. Sprečava da izlazna nit monopoliše procesor kada
+    // hardver prihvata znakove brže nego što ih druge niti
+    // proizvode, a da pri tom ne mora da ustupa procesor posle
+    // svakog pojedinačnog znaka.
+    static const unsigned BURST_LIMIT = 32;
+
     volatile uint8* status =
         (volatile uint8*)CONSOLE_STATUS;
 
@@ -158,46 +164,80 @@ void KernelConsole::outputBody(void*)
     while (true) {
         // Sistemska nit ovde ima omogućene prekide.
         // Koristimo C API da se pri blokiranju sačuva
-        // ceo kontekst kroz prekidnu rutinu.
+        // ceo kontekst kroz prekidnu rutinu. Ovde nit
+        // blokira samo ako trenutno nema šta da se šalje.
         if (sem_wait(outputItems) < 0) {
             return;
         }
 
-        // Ako hardver nije spreman, predajemo procesor.
-        while ((*status & CONSOLE_TX_STATUS_BIT) == 0) {
-            thread_dispatch();
+        // Iznad je već rezervisan bar jedan znak za slanje.
+        bool haveReservedChar = true;
+        unsigned burst = 0;
+
+        while (haveReservedChar) {
+            // Ako hardver nije spreman, predajemo procesor dok
+            // ne postane (prozivanje, bez uposlenog čekanja).
+            while ((*status & CONSOLE_TX_STATUS_BIT) == 0) {
+                thread_dispatch();
+            }
+
+            // Uzimanje znaka i predaja kontroleru rade se
+            // bez prekida, zbog deljenog bafera i semafora.
+            uint64 previousStatus;
+
+            asm volatile(
+                "csrrc %0, sstatus, %1"
+                : "=r"(previousStatus)
+                : "r"(2UL)
+                : "memory"
+            );
+
+            char character;
+
+            if (output.get(character)) {
+                *transmit = (uint8)character;
+                outputSpaces->signal();
+            }
+
+            // Vraćamo prethodno stanje dozvole prekida.
+            if ((previousStatus & 2UL) != 0) {
+                asm volatile("csrsi sstatus, 2" ::: "memory");
+            }
+
+            burst++;
+
+            // Pravičnost: posle ograničenog niza poslatih znakova
+            // dobrovoljno ustupamo procesor drugim spremnim
+            // nitima, umesto da to radimo posle svakog znaka.
+            if (burst >= BURST_LIMIT) {
+                thread_dispatch();
+                burst = 0;
+            }
+
+            // Bez blokiranja pokušavamo da rezervišemo sledeći
+            // znak. Ako ga nema, vraćamo se na blokirajuće
+            // čekanje na početku spoljašnje petlje.
+            haveReservedChar = outputItems->tryWait();
         }
-
-        // Uzimanje znaka i oslobađanje mesta radimo
-        // bez prekida, zbog deljenog bafera i semafora.
-        uint64 previousStatus;
-
-        asm volatile(
-            "csrrc %0, sstatus, %1"
-            : "=r"(previousStatus)
-            : "r"(2UL)
-            : "memory"
-        );
-
-        char character;
-
-        if (output.get(character)) {
-            *transmit = (uint8)character;
-            outputSpaces->signal();
-        }
-
-        // Vraćamo prethodno stanje dozvole prekida.
-        if ((previousStatus & 2UL) != 0) {
-            asm volatile("csrsi sstatus, 2" ::: "memory");
-        }
-
-        // Tajmer ne preotima sistemski kod, pa izlazna
-        // nit dobrovoljno daje priliku drugim nitima.
-        thread_dispatch();
     }
 }
 
 bool KernelConsole::outputEmpty()
 {
     return output.isEmpty();
+}
+
+bool KernelConsole::outputFlushed()
+{
+    if (!outputEmpty()) {
+        return false;
+    }
+
+    // Bafer je prazan, ali poslednji znak je tek upisan u
+    // kontroler u istoj kritičnoj sekciji u kojoj je izvađen iz
+    // bafera. Dodatno proveravamo da je kontroler ponovo spreman
+    // za prijem, čime potvrđujemo da je taj znak zaista preuzet
+    // pre nego što jezgro zaustavi emulator.
+    volatile uint8* status = (volatile uint8*)CONSOLE_STATUS;
+    return (*status & CONSOLE_TX_STATUS_BIT) != 0;
 }

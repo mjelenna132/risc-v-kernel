@@ -59,6 +59,11 @@ public:
     }
     // Prelazak iz sistemskog u korisnički režim
     static void popSppSpie() __attribute__((naked));
+
+    // Čeka da se izlazni bafer konzole isprazni, a zatim trajno
+    // zaustavlja emulator RISC-V procesora. Koristi se i za
+    // regularno gašenje jezgra i za gašenje nakon fatalne greške.
+    static void haltMachine();
 };
 
 

@@ -51,13 +51,9 @@ int main()
         asm volatile("csrci sstatus, 2" ::: "memory");
     }
 
-    // Izlaznoj niti dajemo procesor dok sve preostale
-    // znakove iz softverskog bafera ne preda kontroleru.
-    while (!KernelConsole::outputEmpty()) {
-        thread_dispatch();
-    }
-
-    *(volatile uint32*)0x100000 = 0x5555;
+    // Čeka da se izlazni bafer isprazni i da kontroler potvrdi da
+    // je poslednji znak zaista preuzet, a zatim gasi emulator.
+    Riscv::haltMachine();
 
     return 0;
 }

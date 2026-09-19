@@ -30,6 +30,7 @@ public:
     // Priprema TCB početne main niti.
     static void initialize();
 
+
     // Uspavljuje tekuću nit na zadati broj perioda tajmera.
     static int sleep(uint64 time);
 

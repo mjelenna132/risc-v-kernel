@@ -25,6 +25,14 @@ public:
     // Poziva se sa isključenim prekidima.
     static bool outputEmpty();
 
+    // Da li je izlaz u potpunosti predat kontroleru: softverski
+    // bafer je prazan i kontroler je spreman da primi novi znak
+    // (što znači da je prethodni znak već preuzeo). Koristi se
+    // isključivo interno, prilikom gašenja jezgra, da bi se
+    // izbeglo zaustavljanje emulatora dok je poslednji znak još
+    // uvek "na putu" ka kontroleru.
+    static bool outputFlushed();
+
 private:
     static ConsoleBuffer input;
     static ConsoleBuffer output;

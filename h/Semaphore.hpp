@@ -27,6 +27,13 @@ public:
     int waitN(unsigned n);
     int signalN(unsigned n);
 
+    // Ne blokira: ako ima bar jedne jedinice, uzima jednu i vraća
+    // true, inače ne menja stanje semafora i vraća false. Interni
+    // mehanizam jezgra (nije deo ABI/C/C++ API-ja), koristi ga npr.
+    // izlazna nit konzole da bez blokiranja proveri ima li još
+    // znakova za slanje.
+    bool tryWait();
+
 private:
     explicit _sem(unsigned init);
 

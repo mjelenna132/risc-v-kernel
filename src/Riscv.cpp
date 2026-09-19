@@ -8,6 +8,32 @@
 #include "../h/KernelConsole.hpp"
 #include "../h/Semaphore.hpp"
 
+// Ispisuje poruku o fatalnoj grešci direktno preko konzole jezgra
+// (isti mehanizam koji koristi i sistemski poziv putc).
+static void reportFault(uint64 cause)
+{
+    static const char message[] =
+        "\n[JEZGRO] Nit prekinuta zbog nedozvoljene operacije, scause=";
+
+    for (unsigned i = 0; message[i] != '\0'; i++) {
+        KernelConsole::put(message[i]);
+    }
+
+    char digits[20];
+    unsigned count = 0;
+
+    do {
+        digits[count++] = (char)('0' + cause % 10);
+        cause /= 10;
+    } while (cause != 0);
+
+    while (count > 0) {
+        KernelConsole::put(digits[--count]);
+    }
+
+    KernelConsole::put('\n');
+}
+
 extern "C" uint64 handleSupervisorTrap(
     uint64 code,
     uint64 argument1,
@@ -55,6 +81,19 @@ extern "C" uint64 handleSupervisorTrap(
         Riscv::writeSepc(sepc);
         Riscv::writeSstatus(sstatus);
 
+        return code;
+    }
+
+    // Ilegalna instrukcija (2), nedozvoljeno čitanje (5) ili
+    // nedozvoljen upis (7): umesto da se ista instrukcija zauvek
+    // iznova izvršava (sepc se ovde ne pomera), ovo tretiramo kao
+    // fatalnu grešku i zaustavljamo ceo program, isto kao pri
+    // regularnom gašenju jezgra.
+    if (cause == 2 || cause == 5 || cause == 7) {
+        reportFault(cause);
+        Riscv::haltMachine();
+
+        // haltMachine() se nikad ne vraća (zaustavlja emulator).
         return code;
     }
 
@@ -182,4 +221,16 @@ void Riscv::popSppSpie()
 
         "sret\n"
     );
+}
+
+void Riscv::haltMachine()
+{
+    // Direktan poziv (ne sistemski poziv) jer se ovo poziva i iz
+    // konteksta koji je već unutar jezgra (obrada izuzetka).
+    while (!KernelConsole::outputFlushed()) {
+        _thread::dispatch();
+    }
+
+    // Zaustavljanje emulatora RISC-V procesora (videti hw.h/uputstvo).
+    *(volatile uint32*)0x100000 = 0x5555;
 }

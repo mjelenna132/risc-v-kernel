@@ -1,3 +1,4 @@
+#include "Modifikacija.hpp"
 #include "printing.hpp"
 #include "../h/syscall_cpp.hpp"
 
@@ -27,7 +28,7 @@
 #include "../test/ThreadSleep_C_API_test.hpp"
 // TEST 6 (zadatak 4. CPP API i asinhrona promena konteksta)
 #include "../test/ConsumerProducer_CPP_API_test.hpp"
-#include "System_Mode_test.hpp"
+// #include "System_Mode_test.hpp"  // zakomentarisano - vec je ukljucen gore
 
 #endif
 
@@ -89,6 +90,7 @@ static void testSemaphoreN()
     printString("KRAJ TESTA SEMAFORA\n");
 }
 #endif
+#if 0  // MOJI PRIVREMENI TESTOVI - ZAKOMENTARISANO
 static volatile bool periodicTestFinished = false;
 
 class TestPeriodicThread : public PeriodicThread {
@@ -183,8 +185,9 @@ static void delayedWorker(void*)
     Thread::sleep(20);
     printString("DETE: probudilo se i zavrsava\n");
 }
+#endif
 
-/*
+
 void userMain() {
 
     printString("Unesite broj testa? [1-7]\n");
@@ -255,13 +258,15 @@ void userMain() {
             printString("Test se nije uspesno zavrsio\n");
             printString("TEST 7 (zadatak 2., testiranje da li se korisnicki kod izvrsava u korisnickom rezimu)\n");
 #endif
+    case 8:
+        //modifikacijaTest();
             break;
         default:
             printString("Niste uneli odgovarajuci broj za test\n");
     }
 
 }
-*/
+#if 0  // MOJI OSTALI TESTOVI I PRIVREMENI userMain - ZAKOMENTARISANO
 static sem_t closingSemaphore;
 
 struct CloseWaiter {
@@ -547,3 +552,5 @@ static void testThreadMemory()
     }
 
     // Postojeći kod za izbor testova ostaje ispod.
+
+#endif

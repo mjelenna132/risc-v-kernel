@@ -55,6 +55,11 @@ public:
         return count == CAPACITY;
     }
 
+    static unsigned capacity()
+    {
+        return CAPACITY;
+    }
+
 private:
     static const unsigned CAPACITY = 256;
 

@@ -48,10 +48,8 @@ int sem_wait_n(sem_t id, unsigned n);
 // Oslobađa n jedinica semafora.
 int sem_signal_n(sem_t id, unsigned n);
 
-
-
 // Uspavljuje tekuću nit na zadati broj perioda tajmera.
+// Jedinica vremena predstavlja jednu periodu tajmera (time_t je
+// definisan kao unsigned long u hw.h).
 int time_sleep(time_t time);
-// Jedinica vremena predstavlja jednu periodu tajmera.
-using time_t = unsigned long;
 #endif //OS_PROJECT_SYSCALL_C_HPP
